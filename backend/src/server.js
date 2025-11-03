@@ -13,6 +13,11 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 const matchmaker = new Matchmaker(io);
 
+// 주기적 로비 상태 브로드캐스트 (경량)
+setInterval(() => {
+  io.emit('lobby_state', matchmaker.getLobbyState());
+}, 5000);
+
 io.on('connection', (socket) => {
   socket.on('hello', ({ nickname } = {}) => {
     matchmaker.registerUser(socket, nickname);
@@ -26,6 +31,7 @@ io.on('connection', (socket) => {
 
   socket.on('leave_queue', () => {
     matchmaker.dequeue(socket.id);
+    io.emit('lobby_state', matchmaker.getLobbyState());
   });
 
   socket.on('make_guess', ({ roomId, guess }) => {
@@ -33,6 +39,7 @@ io.on('connection', (socket) => {
     if (!game) return;
     const player = game.players.find((p) => p.socketId === socket.id);
     if (!player) return; // 관전자는 추측 불가
+    if (!guess || typeof guess !== 'string' || [...guess].length !== 2) return;
 
     const result = judgeTwoLetterWord(game.secretFor(socket.id), guess);
     io.to(roomId).emit('guess_result', { roomId, guess, result, pumpkinAvailable: !player.usedPumpkin, by: matchmaker.getNickname(socket.id) });
@@ -60,12 +67,17 @@ io.on('connection', (socket) => {
     matchmaker.addSpectator(roomId, socket.id);
     socket.join(roomId);
     io.to(socket.id).emit('room_joined', { roomId, yourRole: 'spectator', pumpkinAvailable: false });
+    io.to(roomId).emit('spectator_count', { roomId, count: game.spectators?.size || 0 });
   });
 
   socket.on('chat_message', ({ roomId, text }) => {
     if (!text) return;
     const by = matchmaker.getNickname(socket.id);
     io.to(roomId).emit('chat_message', { roomId, by, text, ts: Date.now() });
+  });
+
+  socket.on('request_lobby', () => {
+    io.to(socket.id).emit('lobby_state', matchmaker.getLobbyState());
   });
 
   socket.on('disconnect', () => {

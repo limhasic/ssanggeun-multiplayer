@@ -14,6 +14,7 @@ export default function Home() {
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [board, setBoard] = useState([]); // {guess, result}
+  const [lastRoom, setLastRoom] = useState('');
 
   const backendUrl = useMemo(() => process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001', []);
 
@@ -27,18 +28,39 @@ export default function Home() {
       setStatus('매치 성사');
     });
     s.on('room_joined', ({ yourRole }) => { setRole(yourRole); setStatus('방 입장'); });
-    s.on('guess_result', (payload) => { setLog((prev) => [...prev, payload]); setBoard((b)=>[...b, { guess: payload.guess, result: payload.result }].slice(0,7)); });
+    s.on('guess_result', (payload) => { 
+      setLog((prev) => [...prev, payload]); 
+      setBoard((b)=>[...b, { guess: payload.guess, result: payload.result }].slice(0,7)); 
+      playSound(payload.result?.every((c)=> c==='🥕') ? 'win' : 'tick');
+    });
     s.on('game_over', (payload) => setLog((prev) => [...prev, { type: 'game_over', ...payload }]));
     s.on('spectator_count', ({ count }) => setSpectators(count));
     s.on('chat_message', (msg) => setChat((c)=>[...c, msg]));
-    return () => s.disconnect();
+    // 새로고침 재진입(관전)
+    const savedRoom = localStorage.getItem('roomId');
+    if (savedRoom) {
+      setLastRoom(savedRoom);
+      s.on('connect', () => s.emit('spectate_room', { roomId: savedRoom }));
+    }
+    // 주기적으로 로비 요청
+    const iv = setInterval(() => { s.emit('request_lobby'); }, 5000);
+    // 탭 활성화 시 즉시 요청
+    const onVis = () => { if (document.visibilityState === 'visible') s.emit('request_lobby'); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); s.disconnect(); };
   }, [backendUrl]);
 
   const hello = () => socket?.emit('hello', { nickname });
   const joinQueue = () => socket?.emit('join_queue', {});
+  const leaveQueue = () => socket?.emit('leave_queue');
   const makeGuess = () => socket?.emit('make_guess', { roomId, guess });
   const spectate = (roomId) => socket?.emit('spectate_room', { roomId });
   const sendChat = () => { if (chatInput) { socket?.emit('chat_message', { roomId, text: chatInput }); setChatInput(''); } };
+
+  // 상태 저장
+  useEffect(() => {
+    if (roomId) localStorage.setItem('roomId', roomId);
+  }, [roomId]);
 
   return (
     <main style={{ maxWidth: 680, margin: '40px auto', padding: 16 }}>
@@ -48,8 +70,9 @@ export default function Home() {
         <input placeholder="닉네임" value={nickname} onChange={(e) => setNickname(e.target.value)} />
         <button onClick={hello}>입장</button>
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, display:'flex', gap:8 }}>
         <button onClick={joinQueue}>매치 대기열 참가</button>
+        <button onClick={leaveQueue}>대기열 나가기</button>
       </div>
       <div style={{ marginTop: 16, display:'grid', gridTemplateColumns:'2fr 1fr', gap:16 }}>
         <section>
@@ -150,6 +173,22 @@ function Key({ label, onClick }) {
   return (
     <button onClick={onClick} style={{ minWidth:32, padding:'6px 8px', borderRadius:6, background:'#f5f5f5', border:'1px solid #ddd' }}>{label}</button>
   );
+}
+
+// 간단한 사운드
+let audioCtx;
+function playSound(kind) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = kind === 'win' ? 880 : 440;
+    gain.gain.value = 0.05;
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    setTimeout(() => { osc.stop(); }, kind === 'win' ? 250 : 120);
+  } catch {}
 }
 
 

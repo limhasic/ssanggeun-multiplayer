@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-const SAMPLE_WORDS = ['사과', '호랑'];
+const SAMPLE_WORDS = ['사과', '가지', '마늘', '당근'];
 
 export class Matchmaker {
   constructor(io) {
@@ -36,16 +36,16 @@ export class Matchmaker {
       if (!a || !b) return;
       const roomId = randomUUID();
 
-      const secrets = this.pickSecrets();
+      const secret = this.pickSecret();
       const game = {
         id: roomId,
         players: [
-          { socketId: a.id, role: 'playerA', name: this.getNickname(a.id), secret: secrets[0], usedPumpkin: false },
-          { socketId: b.id, role: 'playerB', name: this.getNickname(b.id), secret: secrets[1], usedPumpkin: false }
+          { socketId: a.id, role: 'playerA', name: this.getNickname(a.id), secret, usedPumpkin: false },
+          { socketId: b.id, role: 'playerB', name: this.getNickname(b.id), secret, usedPumpkin: false }
         ],
         turns: 0,
         secretFor: (socketId) => this.games.get(roomId).players.find((p) => p.socketId === socketId)?.secret || '',
-        solutionForAll: () => secrets,
+        solutionForAll: () => secret,
         spectators: new Set()
       };
       this.games.set(roomId, game);
@@ -58,9 +58,9 @@ export class Matchmaker {
     }
   }
 
-  pickSecrets() {
-    // TODO: 실제 사전/DB에서 무작위 2글자 단어 선택
-    return [SAMPLE_WORDS[0], SAMPLE_WORDS[1]];
+  pickSecret() {
+    // TODO: 실제 사전/DB 무작위 2글자 단어 선택
+    return SAMPLE_WORDS[Math.floor(Math.random() * SAMPLE_WORDS.length)];
   }
 
   getGame(roomId) {
